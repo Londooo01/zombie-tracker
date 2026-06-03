@@ -1,4 +1,4 @@
-﻿"""
+"""
 database.py — Zombie Tracker
 SQLite persistence layer. No ORM — plain Python sqlite3.
 Run directly to verify: python database.py
@@ -13,7 +13,7 @@ from typing import Optional
 from models import (
     CarrierStatus, RiskScore, ShipmentAlert,
     OpsEvent, OpsEventCreate, OpsEventType,
-    HoldStatus, HoldOutcome, HoldResolve,
+    HoldStatus, HoldOutcome, HoldResolve, HoldUpdate,
 )
 
 logger = logging.getLogger(__name__)
@@ -342,6 +342,74 @@ if __name__ == "__main__":
             print(f"  [{a.risk_score.value.upper():8}] {a.tracking_number} | "
                   f"{a.carrier} | {a.days_stalled}d stalled | {a.customer_email}")
         print()
+
+def update_hold(event_id: int, updates: HoldUpdate) -> Optional[OpsEvent]:
+    """
+    Update editable fields on an existing ops event.
+    Only updates fields that are explicitly provided (not None).
+    Returns None if the event does not exist.
+    """
+    conn = get_connection()
+    try:
+        fields = []
+        values = []
+
+        if updates.event_type is not None:
+            fields.append("event_type = ?")
+            values.append(updates.event_type.value)
+        if updates.note is not None:
+            fields.append("note = ?")
+            values.append(updates.note)
+        if updates.created_by is not None:
+            fields.append("created_by = ?")
+            values.append(updates.created_by)
+
+        if not fields:
+            # Nothing to update — return current record as-is
+            row = conn.execute(
+                "SELECT * FROM ops_events WHERE id = ?", (event_id,)
+            ).fetchone()
+            return _row_to_ops_event(row) if row else None
+
+        values.append(event_id)
+        conn.execute(
+            f"UPDATE ops_events SET {', '.join(fields)} WHERE id = ?",
+            values,
+        )
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT * FROM ops_events WHERE id = ?", (event_id,)
+        ).fetchone()
+        if not row:
+            return None
+
+        logger.info("Updated ops event %d", event_id)
+        return _row_to_ops_event(row)
+    finally:
+        conn.close()
+
+
+def delete_hold(event_id: int) -> bool:
+    """
+    Permanently delete an ops event by id.
+    Returns True if a record was deleted, False if not found.
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "DELETE FROM ops_events WHERE id = ?", (event_id,)
+        )
+        conn.commit()
+        deleted = cursor.rowcount > 0
+        if deleted:
+            logger.info("Deleted ops event %d", event_id)
+        else:
+            logger.warning("Delete attempted on non-existent ops event %d", event_id)
+        return deleted
+    finally:
+        conn.close()
+
 
 def get_hold_dashboard() -> dict:
     """
