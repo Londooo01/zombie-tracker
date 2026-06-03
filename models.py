@@ -115,6 +115,12 @@ class HoldResolve(BaseModel):
     resolved_by: str
     note:        Optional[str] = None
 
+class HoldUpdate(BaseModel):
+    """Input schema for PATCH /ops-events/{id}."""
+    event_type: Optional[OpsEventType] = None
+    note: Optional[str] = None
+    created_by: Optional[str] = None
+
 # --- Dashboard Response ---
 
 class DashboardKPIs(BaseModel):
