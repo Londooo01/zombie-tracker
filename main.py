@@ -6,8 +6,8 @@ Detects stalled ecommerce shipments and surfaces them as actionable alerts.
 import logging
 from typing import Optional
 from fastapi import FastAPI, HTTPException
-from database import init_db, get_all_alerts, save_ops_event, get_ops_events, resolve_hold, get_open_holds, get_hold_dashboard
-from models import ShipmentAlert, DashboardResponse, DashboardKPIs, DashboardQueueItem, OpsEvent, OpsEventCreate, HoldResolve
+from database import init_db, get_all_alerts, save_ops_event, get_ops_events, resolve_hold, get_open_holds, get_hold_dashboard, update_hold, delete_hold
+from models import ShipmentAlert, DashboardResponse, DashboardKPIs, DashboardQueueItem, OpsEvent, OpsEventCreate, HoldResolve, HoldUpdate
 from fastapi.middleware.cors import CORSMiddleware
 logging.basicConfig(
     level=logging.INFO,
@@ -240,3 +240,52 @@ def resolve_ops_event(event_id: int, resolution: HoldResolve):
     except Exception as e:
         logger.error("PATCH /ops-events/%d/resolve failed: %s", event_id, e)
         raise HTTPException(status_code=500, detail="Failed to resolve hold.")
+
+
+@app.patch("/ops-events/{event_id}", response_model=OpsEvent)
+def edit_ops_event(event_id: int, updates: HoldUpdate):
+    """
+    Edit an existing ops event. Only fields included in the body are updated.
+
+    Example body (all fields optional — send only what you want to change):
+    {
+        "note": "Customer confirmed new address",
+        "created_by": "sam.ops"
+    }
+    """
+    try:
+        updated = update_hold(event_id, updates)
+        if not updated:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No ops event found with id {event_id}."
+            )
+        logger.info("PATCH /ops-events/%d — event updated", event_id)
+        return updated
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("PATCH /ops-events/%d failed: %s", event_id, e)
+        raise HTTPException(status_code=500, detail="Failed to update ops event.")
+
+
+@app.delete("/ops-events/{event_id}")
+def delete_ops_event(event_id: int):
+    """
+    Permanently delete an ops event by id.
+    Returns a confirmation message on success, 404 if not found.
+    """
+    try:
+        deleted = delete_hold(event_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No ops event found with id {event_id}."
+            )
+        logger.info("DELETE /ops-events/%d — event deleted", event_id)
+        return {"message": f"Ops event {event_id} deleted successfully."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("DELETE /ops-events/%d failed: %s", event_id, e)
+        raise HTTPException(status_code=500, detail="Failed to delete ops event.")
